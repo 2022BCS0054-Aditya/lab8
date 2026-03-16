@@ -15,7 +15,6 @@ df = pd.read_csv(data_path, sep=',')
 # 2. Apply pre-processing and feature selection
 
 ## Separate features and target variable
-breakpoint()
 X = df.drop('ocean_proximity', axis=1)
 y = df['ocean_proximity']
 

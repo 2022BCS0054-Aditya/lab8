@@ -2,23 +2,31 @@ name: Lab 8 DVC Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
+  pull_request:
+    branches:
+      - "main"
 
 jobs:
-  ml-pipeline:
+  train:
+    name: Continuous Integration (CI)
     runs-on: ubuntu-latest
+    outputs:
+      # Capturing metrics as job outputs for the deploy job to use
+      r2_score: ${{ steps.training.outputs.r2_score }}
+      mse: ${{ steps.training.outputs.mse }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: "3.11"
 
-      - name: Install DVC and Dependencies # Step 1: Installs DVC
+      - name: Install Dependencies
         run: |
-          pip install dvc dvc-s3
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Configure AWS Credentials # Step 2: Configures AWS from secrets
@@ -32,22 +40,67 @@ jobs:
       - name: Pull Data from S3 # Step 3: Runs dvc pull
         run: dvc pull
 
-      - name: Train Model # Step 4: Trains the model
-        run: python src/train.py
+      - name: Run Training Script
+        id: training
+        run: | # We use grep to capture the printed lines from script
+          output=$(python src/train.py)
+          echo "$output"
+          echo "$output" | grep r2_score >> $GITHUB_OUTPUT
+          echo "$output" | grep mse >> $GITHUB_OUTPUT
 
-      - name: Archive Metrics # Step 5: Saves metrics as artifacts
-        uses: actions/upload-artifact@v3
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: model-metrics
-          path: outputs/results.json # Adjust path to your metrics file
+          name: model-artifacts
+          path: outputs/
 
-      - name: Compare and Build # Steps 6, 7, & 8
-        env:
-          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKER_PASS: ${{ secrets.DOCKERHUB_TOKEN }}
+  deploy:
+    name: Continuous Deployment (CD)
+    needs: train
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: model-artifacts
+          path: ./outputs  # Ensure this matches Dockerfile expectation
+
+      - name: Compare Metrics
+        id: compare
         run: |
-          # Logic to compare metrics against a baseline (e.g., from a secret)
-          # If performance is better, build and push
-          docker build -t $DOCKER_USER/housing_predict:latest .
-          echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-          docker push $DOCKER_USER/housing_predict:latest
+          CURR_R2=${{ needs.train.outputs.r2_score }}
+          BEST_R2=${{ vars.BEST_R2 }}
+          
+          if (( $(echo "$CURR_R2 > $BEST_R2" | bc -l) )); then
+            echo "better=1" >> $GITHUB_OUTPUT
+          else
+            echo "better=0" >> $GITHUB_OUTPUT
+            echo "2022BCS0054:----Metric did not improve"
+          fi
+
+      - name: Login to Docker Hub
+        if: steps.compare.outputs.better == '1'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Image
+        if: steps.compare.outputs.better == '1'
+        run: |
+          # Tagging with unique run number and latest
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/lab8:${{ github.run_number }} .
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/lab8:latest .
+          docker push ${{ secrets.DOCKER_USERNAME }}/lab8:${{ github.run_number }}
+          docker push ${{ secrets.DOCKER_USERNAME }}/lab8:latest
+
+      - name: Update Baseline Variables
+        if: steps.compare.outputs.better == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          gh variable set BEST_R2 --body "${{ needs.train.outputs.r2_score }}"
+          gh variable set BEST_MSE --body "${{ needs.train.outputs.mse }}"

@@ -15,8 +15,10 @@ df = pd.read_csv(data_path, sep=',')
 # 2. Apply pre-processing and feature selection
 
 ## Separate features and target variable
-X = df.drop('ocean_proximity', axis=1)
-y = df['ocean_proximity']
+X = df.drop('median_house_value', axis=1)
+y = df['median_house_value']
+
+X = pd.get_dummies(X, columns=['ocean_proximity'])
 
 # feature selection
 # top_features = correlations.abs().sort_values(ascending=False).head(4).index.tolist()

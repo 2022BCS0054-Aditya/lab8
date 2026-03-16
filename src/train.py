@@ -10,15 +10,14 @@ from sklearn.metrics import mean_squared_error, r2_score
 
 # 1. Load the dataset
 data_path = 'data/housing.csv'
-df = pd.read_csv(data_path, sep=';')
+df = pd.read_csv(data_path, sep=',')
 
 # 2. Apply pre-processing and feature selection
 
 ## Separate features and target variable
+breakpoint()
 X = df.drop('ocean_proximity', axis=1)
 y = df['ocean_proximity']
-
-correlations = df.corr()['ocean_proximity'].drop('ocean_proximity')
 
 # feature selection
 # top_features = correlations.abs().sort_values(ascending=False).head(4).index.tolist()

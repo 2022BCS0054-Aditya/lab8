@@ -1,0 +1,53 @@
+name: Lab 8 DVC Pipeline
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  ml-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install DVC and Dependencies # Step 1: Installs DVC
+        run: |
+          pip install dvc dvc-s3
+          pip install -r requirements.txt
+
+      - name: Configure AWS Credentials # Step 2: Configures AWS from secrets
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Pull Data from S3 # Step 3: Runs dvc pull
+        run: dvc pull
+
+      - name: Train Model # Step 4: Trains the model
+        run: python src/train.py
+
+      - name: Archive Metrics # Step 5: Saves metrics as artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: model-metrics
+          path: outputs/results.json # Adjust path to your metrics file
+
+      - name: Compare and Build # Steps 6, 7, & 8
+        env:
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKER_PASS: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          # Logic to compare metrics against a baseline (e.g., from a secret)
+          # If performance is better, build and push
+          docker build -t $DOCKER_USER/housing_predict:latest .
+          echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+          docker push $DOCKER_USER/housing_predict:latest

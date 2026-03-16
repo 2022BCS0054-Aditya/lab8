@@ -45,7 +45,7 @@ jobs:
         run: | # We use grep to capture the printed lines from script
           output=$(python src/train.py)
           echo "$output"
-          echo "dataset size = 5000 rows"
+          echo "dataset size = 5000 samples"
           echo "$output" | grep r2_score >> $GITHUB_OUTPUT
           echo "$output" | grep mse >> $GITHUB_OUTPUT
 
